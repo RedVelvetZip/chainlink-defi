@@ -1,23 +1,96 @@
-const { inputToConfig } = require("@ethereum-waffle/compiler")
-const { ethers, deployments } = require("hardhat")
+const { assert, expect } = require("chai")
+const { network, deployments, ethers } = require("hardhat")
+const { developmentChains } = require("../helper-hardhat-config")
+const { moveBlocks } = require("../utils/move-blocks")
+const { moveTime } = require("../utils/move-time")
 
-describe("Staking Test", async function() {
+const SECONDS_IN_A_DAY = 86400
+const SECONDS_IN_A_YEAR = 31449600
+
+!developmentChains.includes(network.name)
+    ? describe.skip
+    : describe("Staking Unit Tests", async function () {
     let staking, rewardToken, deployer, stakeAmount
 
-    beforeEach(async function() {
+    beforeEach(async function () {
         const accounts = await ethers.getSigners()
         deployer = accounts[0]
-        await deployments.fixture(["all"])
-        staking = await ethers.getContractAt("Staking")
-        rewardToken = await ethers.getContractAt("RewardToken")
+        await deployments.fixture(["rewardtoken", "staking"])
+
+
+        staking = await ethers.getContractFactory("Staking");
+        rewardToken = await ethers.getContractFactory('RewardToken')
         stakeAmount = ethers.utils.parseEther("100000")
     })
 
-    it("Allows users to stake and claim rewards", async function () {
-        await rewardToken.approve(staking.address, stakeAmount)
-        await staking.stake(stakeAmount)
-        const startingEarned = await staking.earned(deployer.address)
+    // it("Allows users to stake and claim rewards", async function () {
+    //     await staking.stake(stakeAmount)
+    //     await rewardToken.approve(staking.address, stakeAmount)
+        
+    //     const startingEarned = await staking.earned(deployer.address)
 
-        console.log(`Starting Earned ${startingEarned}`)
+    //     console.log(`Starting Earned ${startingEarned}`)
+    // })
+    describe("constructor", () => {
+        it("Sets the rewards token address correctly", async () => {
+            const response = await staking.s_rewardToken()
+            assert.equal(response, rewardToken.address)
+        })
+    })
+    describe("rewardPerToken", () => {
+        it("Returns the reward amount of 1 token based time spent locked up", async () => {
+            await rewardToken.approve(staking.address, stakeAmount)
+            await staking.stake(stakeAmount)
+            await moveTime(SECONDS_IN_A_DAY)
+            await moveBlocks(1)
+            let reward = await staking.rewardPerToken()
+            let expectedReward = "86"
+            assert.equal(reward.toString(), expectedReward)
+
+            await moveTime(SECONDS_IN_A_YEAR)
+            await moveBlocks(1)
+            reward = await staking.rewardPerToken()
+            expectedReward = "31536"
+            assert.equal(reward.toString(), expectedReward)
+        })
+    })
+    describe("stake", () => {
+        it("Moves tokens from the user to the staking contract", async () => {
+            await rewardToken.approve(staking.address, stakeAmount)
+            await staking.stake(stakeAmount)
+            await moveTime(SECONDS_IN_A_DAY)
+            await moveBlocks(1)
+            const earned = await staking.earned(deployer.address)
+            const expectedEarned = "8600000"
+            assert.equal(expectedEarned, earned.toString())
+        })
+    })
+    describe("withdraw", () => {
+        it("Moves tokens from the user to the staking contract", async () => {
+            await rewardToken.approve(staking.address, stakeAmount)
+            await staking.stake(stakeAmount)
+            await moveTime(SECONDS_IN_A_DAY)
+            await moveBlocks(1)
+            const balanceBefore = await rewardToken.balanceOf(deployer.address)
+            await staking.withdraw(stakeAmount)
+            const balanceAfter = await rewardToken.balanceOf(deployer.address)
+            const earned = await staking.earned(deployer.address)
+            const expectedEarned = "8600000"
+            assert.equal(expectedEarned, earned.toString())
+            assert.equal(balanceBefore.add(stakeAmount).toString(), balanceAfter.toString())
+        })
+    })
+    describe("claimReward", () => {
+        it("Users can claim their rewards", async () => {
+            await rewardToken.approve(staking.address, stakeAmount)
+            await staking.stake(stakeAmount)
+            await moveTime(SECONDS_IN_A_DAY)
+            await moveBlocks(1)
+            const earned = await staking.earned(deployer.address)
+            const balanceBefore = await rewardToken.balanceOf(deployer.address)
+            await staking.claimReward()
+            const balanceAfter = await rewardToken.balanceOf(deployer.address)
+            assert.equal(balanceBefore.add(earned).toString(), balanceAfter.toString())
+        })
     })
 })

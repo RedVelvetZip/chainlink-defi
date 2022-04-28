@@ -7,4 +7,10 @@ contract RewardToken is ERC20 {
     constructor() ERC20("Reward Token", "RT") {
         _mint(msg.sender, 1000000 * 10**18);
     }
+
+    function approve(address spender, uint256 amount) public virtual override returns (bool) {
+        address owner = _msgSender();
+        _approve(owner, spender, amount);
+        return true;
+    }
 }
